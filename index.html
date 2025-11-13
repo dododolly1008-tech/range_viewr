@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>簡易プリフロップレンジビューア</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 16px;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    h1 {
+      font-size: 20px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .controls {
+      margin: 8px auto 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      align-items: center;
+      justify-content: center;
+      max-width: 640px;
+    }
+    .controls label {
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .color-chip {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid #00000040;
+    }
+    #reset {
+      padding: 4px 10px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: 1px solid #4b5563;
+      cursor: pointer;
+      background: #111827;
+      color: #e5e7eb;
+    }
+
+    .grid-wrapper {
+      overflow-x: auto;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+    .grid-container {
+      display: inline-block;
+      padding: 12px;
+      border-radius: 18px;
+      background: #020617;
+      box-shadow: 0 12px 30px #00000080;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(14, 28px);
+      gap: 2px;
+      user-select: none;
+    }
+    .cell {
+      width: 28px;
+      height: 28px;
+      font-size: 11px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.05s, box-shadow 0.1s;
+      color: #f9fafb;
+    }
+    .cell.header {
+      font-weight: bold;
+      cursor: default;
+      background: transparent;
+      color: #9ca3af;
+    }
+
+    /* ===== 色ごとのバケツ =====
+       1: 紫, 2: 赤, 3: オレンジ, 4: 黄,
+       5: 濃い緑, 6: 黄緑, 7: 水色, 8: 白, 9: グレー
+       0: 黒（レンジ外）
+    */
+
+    .bucket-0 {
+      background: #000000;
+      color: #4b5563;
+    }
+
+    .bucket-1 { background: #7c3aed; }                    /* 紫 */
+    .bucket-2 { background: #ef4444; }                    /* 赤 */
+    .bucket-3 { background: #f97316; }                    /* オレンジ */
+    .bucket-4 { background: #facc15; color: #111827; }    /* 黄 */
+    .bucket-5 { background: #166534; }                    /* 濃い緑 */
+    .bucket-6 { background: #a3e635; color: #111827; }    /* 黄緑 */
+    .bucket-7 { background: #38bdf8; color: #0f172a; }    /* 水色 */
+    .bucket-8 { background: #f9fafb; color: #111827; }    /* 白 */
+    .bucket-9 { background: #9ca3af; color: #111827; }    /* グレー */
+
+    .bucket-hidden {
+      opacity: 0.15;
+    }
+    .manual-hide {
+      opacity: 0.04 !important;
+    }
+    .cell:not(.header):active {
+      transform: scale(0.94);
+      box-shadow: 0 0 0 1px #e5e7eb80;
+    }
+  </style>
+</head>
+<body>
+  <h1>簡易プリフロップレンジ</h1>
+
+  <div class="controls">
+    <label>
+      <input type="checkbox" data-bucket="1" checked>
+      <span class="color-chip" style="background:#7c3aed"></span> 紫
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="2" checked>
+      <span class="color-chip" style="background:#ef4444"></span> 赤
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="3" checked>
+      <span class="color-chip" style="background:#f97316"></span> オレンジ
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="4" checked>
+      <span class="color-chip" style="background:#facc15"></span> 黄
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="5" checked>
+      <span class="color-chip" style="background:#166534"></span> 濃い緑
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="6" checked>
+      <span class="color-chip" style="background:#a3e635"></span> 黄緑
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="7" checked>
+      <span class="color-chip" style="background:#38bdf8"></span> 水色
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="8" checked>
+      <span class="color-chip" style="background:#f9fafb;border:1px solid #9ca3af"></span> 白
+    </label>
+    <label>
+      <input type="checkbox" data-bucket="9" checked>
+      <span class="color-chip" style="background:#9ca3af"></span> グレー
+    </label>
+
+    <button id="reset">全てリセット（全表示）</button>
+  </div>
+
+  <div class="grid-wrapper">
+    <div class="grid-container">
+      <div id="rangeGrid" class="grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const ranks = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+
+    /* ==========================================
+       strengthMap 雛形
+       ------------------------------------------
+       - すべて 0（=黒）で初期化してあります
+       - 色を付けたいマスだけ 1〜9 に書き換えてください
+       - 例：
+          'AA': 1,   // AA を紫
+          'AKs': 2,  // AKs を赤
+          'AJo': 8,  // AJo を白
+    =========================================== */
+    const strengthMap = {
+      // A 〜
+      'AA': 1,
+      'AKs': 1, 'AQs': 2, 'AJs': 3, 'ATs': 4, 'A9s': 5, 'A8s': 6, 'A7s': 6, 'A6s': 6, 'A5s': 6, 'A4s': 6, 'A3s': 6, 'A2s': 6,
+      'AKo': 1, 'AQo': 4, 'AJo': 5, 'ATo': 6, 'A9o': 7, 'A8o': 8, 'A7o': 8, 'A6o': 8, 'A5o': 8, 'A4o': 0, 'A3o': 0, 'A2o': 0,
+
+      // K 〜
+      'KK': 1,
+      'KQs': 3, 'KJs': 4, 'KTs': 5, 'K9s': 6, 'K8s': 7, 'K7s': 7, 'K6s': 7, 'K5s': 7, 'K4s': 7, 'K3s': 7, 'K2s': 7,
+      'KQo': 5, 'KJo': 6, 'KTo': 7, 'K9o': 8, 'K8o': 0, 'K7o': 0, 'K6o': 0, 'K5o': 0, 'K4o': 0, 'K3o': 0, 'K2o': 0,
+
+      // Q 〜
+      'QQ': 1,
+      'QJs': 5, 'QTs': 6, 'Q9s': 6, 'Q8s': 7, 'Q7s': 8, 'Q6s': 8, 'Q5s': 8, 'Q4s': 8, 'Q3s': 8, 'Q2s': 8,
+      'QJo':7, 'QTo': 8, 'Q9o': 8, 'Q8o': 0, 'Q7o': 0, 'Q6o': 0, 'Q5o': 0, 'Q4o': 0, 'Q3o': 0, 'Q2o': 0,
+
+      // J 〜
+      'JJ': 2,
+      'JTs': 6, 'J9s': 6, 'J8s': 7, 'J7s': 8, 'J6s': 9, 'J5s': 9, 'J4s': 9, 'J3s': 9, 'J2s': 9,
+      'JTo': 8, 'J9o': 8, 'J8o': 0, 'J7o': 0, 'J6o': 0, 'J5o': 0, 'J4o': 0, 'J3o': 0, 'J2o': 0,
+
+      // T 〜
+      'TT': 3,
+      'T9s': 6, 'T8s': 7, 'T7s': 8, 'T6s': 9, 'T5s': 0, 'T4s': 0, 'T3s': 0, 'T2s': 0,
+      'T9o': 8, 'T8o': 0, 'T7o': 0, 'T6o': 0, 'T5o': 0, 'T4o': 0, 'T3o': 0, 'T2o': 0,
+
+      // 9 〜
+      '99': 4,
+      '98s': 7, '97s': 8, '96s': 9, '95s': 0, '94s': 0, '93s': 0, '92s': 0,
+      '98o': 0, '97o': 0, '96o': 0, '95o': 0, '94o': 0, '93o': 0, '92o': 0,
+
+      // 8 〜
+      '88': 5,
+      '87s': 8, '86s': 9, '85s': 0, '84s': 0, '83s': 0, '82s': 0,
+      '87o': 0, '86o': 0, '85o': 0, '84o': 0, '83o': 0, '82o': 0,
+
+      // 7 〜
+      '77': 6,
+      '76s': 8, '75s': 9, '74s': 0, '73s': 0, '72s': 0,
+      '76o': 0, '75o': 0, '74o': 0, '73o': 0, '72o': 0,
+
+      // 6 〜
+      '66': 6,
+      '65s': 8, '64s': 9, '63s': 0, '62s': 0,
+      '65o': 0, '64o': 0, '63o': 0, '62o': 0,
+
+      // 5 〜
+      '55': 6,
+      '54s': 8, '53s': 0, '52s': 0,
+      '54o': 0, '53o': 0, '52o': 0,
+
+      // 4 〜
+      '44': 7,
+      '43s': 0, '42s': 0,
+      '43o': 0, '42o': 0,
+
+      // 3 〜
+      '33': 7,
+      '32s': 0,
+      '32o': 0,
+
+      // 2 〜
+      '22': 7,
+    };
+
+    const gridEl = document.getElementById('rangeGrid');
+
+    function createGrid() {
+      const emptyHeader = document.createElement('div');
+      emptyHeader.className = 'cell header';
+      gridEl.appendChild(emptyHeader);
+
+      for (let c = 0; c < ranks.length; c++) {
+        const h = document.createElement('div');
+        h.className = 'cell header';
+        h.textContent = ranks[c];
+        gridEl.appendChild(h);
+      }
+
+      for (let r = 0; r < ranks.length; r++) {
+        const rowRank = ranks[r];
+
+        const rowHeader = document.createElement('div');
+        rowHeader.className = 'cell header';
+        rowHeader.textContent = rowRank;
+        gridEl.appendChild(rowHeader);
+
+        for (let c = 0; c < ranks.length; c++) {
+          const colRank = ranks[c];
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+
+          let key;
+          if (r === c) {
+            key = rowRank + colRank;
+          } else if (r < c) {
+            // 上三角: suited
+            key = rowRank + colRank + 's';
+          } else {
+            // 下三角: offsuit
+            key = colRank + rowRank + 'o';
+          }
+
+          cell.dataset.hand = key;
+
+          const bucket = strengthMap[key] || 0;
+          cell.dataset.bucket = bucket;
+          cell.classList.add(`bucket-${bucket}`);
+
+          cell.textContent = key;
+
+          cell.addEventListener('click', () => {
+            if (cell.classList.contains('manual-hide')) {
+              cell.classList.remove('manual-hide');
+            } else {
+              cell.classList.add('manual-hide');
+            }
+          });
+
+          gridEl.appendChild(cell);
+        }
+      }
+    }
+
+    createGrid();
+
+    document.querySelectorAll('.controls input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const bucket = cb.dataset.bucket;
+        const checked = cb.checked;
+
+        document.querySelectorAll(`.cell[data-bucket="${bucket}"]`).forEach(cell => {
+          if (!cell.classList.contains('header')) {
+            if (checked) {
+              cell.classList.remove('bucket-hidden');
+            } else {
+              cell.classList.add('bucket-hidden');
+            }
+          }
+        });
+      });
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      document.querySelectorAll('.controls input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+      });
+      document.querySelectorAll('.cell').forEach(cell => {
+        cell.classList.remove('bucket-hidden');
+        cell.classList.remove('manual-hide');
+      });
+    });
+  </script>
+</body>
+</html>
