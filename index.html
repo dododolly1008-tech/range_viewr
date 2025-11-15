@@ -85,7 +85,7 @@
     }
     .cell.header {
       font-weight: bold;
-      cursor: default;
+      cursor: pointer;  /* ヘッダもクリック可能に */
       background: transparent;
       color: #9ca3af;
     }
@@ -120,6 +120,23 @@
     .cell:not(.header):active {
       transform: scale(0.94);
       box-shadow: 0 0 0 1px #e5e7eb80;
+    }
+
+    /* 行・列ハイライト（濃いピンクの枠） */
+    .row-highlight,
+    .col-highlight {
+      box-shadow: 0 0 0 3px #ec4899 inset;  /* 太さはここで調整 */
+    }
+
+    /* 行＆列の交差マスは少しだけ強調（任意） */
+    .row-highlight.col-highlight {
+      box-shadow: 0 0 0 3px #ec4899 inset, 0 0 0 1px #ec4899;
+    }
+
+    /* 選択中ヘッダの見た目 */
+    .header-active {
+      color: #f472b6;
+      text-shadow: 0 0 4px #ec4899;
     }
   </style>
 </head>
@@ -296,29 +313,74 @@
     // 相手用レンジ（初期値は自分と同じ。あとで好きに変えてOK）
     const strengthMapVillain = { ...strengthMapHero };
 
+    // 行ハイライト切り替え
+    function toggleRowHighlight(gridName, rank, headerEl) {
+      const isActive = headerEl.classList.toggle('header-active');
+      document
+        .querySelectorAll(`.cell[data-grid="${gridName}"][data-row-rank="${rank}"]:not(.header)`)
+        .forEach(cell => {
+          if (isActive) {
+            cell.classList.add('row-highlight');
+          } else {
+            cell.classList.remove('row-highlight');
+          }
+        });
+    }
+
+    // 列ハイライト切り替え
+    function toggleColHighlight(gridName, rank, headerEl) {
+      const isActive = headerEl.classList.toggle('header-active');
+      document
+        .querySelectorAll(`.cell[data-grid="${gridName}"][data-col-rank="${rank}"]:not(.header)`)
+        .forEach(cell => {
+          if (isActive) {
+            cell.classList.add('col-highlight');
+          } else {
+            cell.classList.remove('col-highlight');
+          }
+        });
+    }
+
     // gridName ごとにグリッドを生成
     function createGrid(gridId, strengthMap, gridName) {
       const gridEl = document.getElementById(gridId);
 
+      // 左上の空ヘッダ
       const emptyHeader = document.createElement('div');
       emptyHeader.className = 'cell header';
+      emptyHeader.dataset.grid = gridName;
       gridEl.appendChild(emptyHeader);
 
+      // 上ヘッダ（列：A〜2）
       for (let c = 0; c < ranks.length; c++) {
+        const rank = ranks[c];
         const h = document.createElement('div');
         h.className = 'cell header';
-        h.textContent = ranks[c];
+        h.textContent = rank;
+        h.dataset.grid = gridName;
+        h.dataset.headerType = 'col';
+        h.dataset.rank = rank;
+
+        h.addEventListener('click', () => toggleColHighlight(gridName, rank, h));
         gridEl.appendChild(h);
       }
 
+      // 各行
       for (let r = 0; r < ranks.length; r++) {
         const rowRank = ranks[r];
 
+        // 左ヘッダ（行：A〜2）
         const rowHeader = document.createElement('div');
         rowHeader.className = 'cell header';
         rowHeader.textContent = rowRank;
+        rowHeader.dataset.grid = gridName;
+        rowHeader.dataset.headerType = 'row';
+        rowHeader.dataset.rank = rowRank;
+
+        rowHeader.addEventListener('click', () => toggleRowHighlight(gridName, rowRank, rowHeader));
         gridEl.appendChild(rowHeader);
 
+        // 中身セル
         for (let c = 0; c < ranks.length; c++) {
           const colRank = ranks[c];
           const cell = document.createElement('div');
@@ -335,6 +397,8 @@
 
           cell.dataset.hand = key;
           cell.dataset.grid = gridName;
+          cell.dataset.rowRank = rowRank;
+          cell.dataset.colRank = colRank;
 
           const bucket = strengthMap[key] || 0;
           cell.dataset.bucket = bucket;
@@ -342,6 +406,7 @@
 
           cell.textContent = key;
 
+          // セル単体クリックでの手動薄暗化
           cell.addEventListener('click', () => {
             if (cell.classList.contains('manual-hide')) {
               cell.classList.remove('manual-hide');
@@ -380,7 +445,7 @@
       });
     });
 
-    // リセットボタンをセットアップ（gridごと）
+    // リセットボタン（gridごと）
     function setupReset(resetId, gridName) {
       const btn = document.getElementById(resetId);
       btn.addEventListener('click', () => {
@@ -389,13 +454,20 @@
           .querySelectorAll(`.controls input[data-grid="${gridName}"]`)
           .forEach(cb => cb.checked = true);
 
-        // そのgridのセルだけリセット
+        // そのgridのセル状態リセット
         document
           .querySelectorAll(`.cell[data-grid="${gridName}"]`)
           .forEach(cell => {
             cell.classList.remove('bucket-hidden');
             cell.classList.remove('manual-hide');
+            cell.classList.remove('row-highlight');
+            cell.classList.remove('col-highlight');
           });
+
+        // ヘッダの選択状態も解除
+        document
+          .querySelectorAll(`.cell.header[data-grid="${gridName}"]`)
+          .forEach(h => h.classList.remove('header-active'));
       });
     }
 
