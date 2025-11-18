@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>簡易プリフロップレンジビューア</title>
+
+  <!-- （任意）キャッシュ抑制。更新が反映されにくいとき用 -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -53,11 +59,11 @@
     }
 
     .grid-wrapper {
-  overflow-x: auto;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;   /* ★ これを追加 */
-}
+      overflow-x: auto;
+      max-width: 100%;
+      margin: 0 auto;
+      text-align: center;   /* 表を中央寄せ */
+    }
     .grid-container {
       display: inline-block;
       padding: 12px;
@@ -86,7 +92,7 @@
     }
     .cell.header {
       font-weight: bold;
-      cursor: pointer;  /* ヘッダもクリック可能に */
+      cursor: pointer;   /* 行・列ヘッダもタップ可能 */
       background: transparent;
       color: #9ca3af;
     }
@@ -123,21 +129,80 @@
       box-shadow: 0 0 0 1px #e5e7eb80;
     }
 
-    /* 行・列ハイライト（濃いピンクの枠） */
+    /* 行・列ハイライト（濃いピンク枠） */
     .row-highlight,
     .col-highlight {
-      box-shadow: 0 0 0 3px #ec4899 inset;  /* 太さはここで調整 */
+      box-shadow: 0 0 0 3px #ec4899 inset;
     }
-
-    /* 行＆列の交差マスは少しだけ強調（任意） */
     .row-highlight.col-highlight {
       box-shadow: 0 0 0 3px #ec4899 inset, 0 0 0 1px #ec4899;
     }
-
-    /* 選択中ヘッダの見た目 */
     .header-active {
       color: #f472b6;
       text-shadow: 0 0 4px #ec4899;
+    }
+
+    /* ===== ハンド履歴エリア ===== */
+    .hh-section {
+      margin: 32px auto 0;
+      max-width: 960px;
+    }
+    .hh-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      align-items: center;
+      font-size: 13px;
+      margin-bottom: 8px;
+      justify-content: center;
+    }
+    .hh-controls button {
+      padding: 4px 10px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: 1px solid #4b5563;
+      cursor: pointer;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    .hh-controls input[type="number"] {
+      width: 80px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 13px;
+    }
+    .hh-controls select {
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+      font-size: 13px;
+    }
+    .hh-file-name {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .hh-error {
+      color: #f87171;
+      font-size: 13px;
+      margin: 4px 0 8px;
+      text-align: center;
+    }
+    .hh-results {
+      background: #020617;
+      border-radius: 8px;
+      padding: 10px;
+      max-height: 420px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.4;
     }
   </style>
 </head>
@@ -242,6 +307,33 @@
     </div>
   </div>
 
+  <!-- ハンド履歴エリア -->
+  <div class="hh-section">
+    <h2>ハンド履歴</h2>
+
+    <div class="hh-controls">
+      <button id="hhImportBtn">HHを取り込む</button>
+      <span class="hh-file-name" id="hhFileName">ファイル未選択</span>
+
+      <span>／</span>
+
+      <input type="number" id="hhThreshold" min="0" step="0.5" placeholder="10">
+      <span>bb以上チップを</span>
+      <select id="hhDirection">
+        <option value="won">得た</option>
+        <option value="lost">失った</option>
+      </select>
+      <span>ハンド</span>
+
+      <button id="hhShowBtn">履歴を表示</button>
+    </div>
+
+    <input type="file" id="hhFileInput" accept=".txt,.log,.hh,.rtf,.html,.*" style="display:none">
+
+    <div id="hhError" class="hh-error"></div>
+    <div id="hhResults" class="hh-results"></div>
+  </div>
+
   <script>
     const ranks = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
 
@@ -311,10 +403,10 @@
       '22': 7,
     };
 
-    // 相手用レンジ（初期値は自分と同じ。あとで好きに変えてOK）
+    // 相手用レンジ（初期値は自分と同じ）
     const strengthMapVillain = { ...strengthMapHero };
 
-    // 行ハイライト切り替え
+    // 行ハイライト
     function toggleRowHighlight(gridName, rank, headerEl) {
       const isActive = headerEl.classList.toggle('header-active');
       document
@@ -328,7 +420,7 @@
         });
     }
 
-    // 列ハイライト切り替え
+    // 列ハイライト
     function toggleColHighlight(gridName, rank, headerEl) {
       const isActive = headerEl.classList.toggle('header-active');
       document
@@ -342,17 +434,16 @@
         });
     }
 
-    // gridName ごとにグリッドを生成
+    // グリッド生成
     function createGrid(gridId, strengthMap, gridName) {
       const gridEl = document.getElementById(gridId);
 
-      // 左上の空ヘッダ
       const emptyHeader = document.createElement('div');
       emptyHeader.className = 'cell header';
       emptyHeader.dataset.grid = gridName;
       gridEl.appendChild(emptyHeader);
 
-      // 上ヘッダ（列：A〜2）
+      // 上ヘッダ
       for (let c = 0; c < ranks.length; c++) {
         const rank = ranks[c];
         const h = document.createElement('div');
@@ -361,27 +452,23 @@
         h.dataset.grid = gridName;
         h.dataset.headerType = 'col';
         h.dataset.rank = rank;
-
         h.addEventListener('click', () => toggleColHighlight(gridName, rank, h));
         gridEl.appendChild(h);
       }
 
-      // 各行
+      // 行
       for (let r = 0; r < ranks.length; r++) {
         const rowRank = ranks[r];
 
-        // 左ヘッダ（行：A〜2）
         const rowHeader = document.createElement('div');
         rowHeader.className = 'cell header';
         rowHeader.textContent = rowRank;
         rowHeader.dataset.grid = gridName;
         rowHeader.dataset.headerType = 'row';
         rowHeader.dataset.rank = rowRank;
-
         rowHeader.addEventListener('click', () => toggleRowHighlight(gridName, rowRank, rowHeader));
         gridEl.appendChild(rowHeader);
 
-        // 中身セル
         for (let c = 0; c < ranks.length; c++) {
           const colRank = ranks[c];
           const cell = document.createElement('div');
@@ -391,9 +478,9 @@
           if (r === c) {
             key = rowRank + colRank;
           } else if (r < c) {
-            key = rowRank + colRank + 's'; // suited
+            key = rowRank + colRank + 's';
           } else {
-            key = colRank + rowRank + 'o'; // offsuit
+            key = colRank + rowRank + 'o';
           }
 
           cell.dataset.hand = key;
@@ -407,7 +494,7 @@
 
           cell.textContent = key;
 
-          // セル単体クリックでの手動薄暗化
+          // 個別ON/OFF
           cell.addEventListener('click', () => {
             if (cell.classList.contains('manual-hide')) {
               cell.classList.remove('manual-hide');
@@ -421,11 +508,10 @@
       }
     }
 
-    // 2つのグリッドを生成
     createGrid('heroGrid', strengthMapHero, 'hero');
     createGrid('villainGrid', strengthMapVillain, 'villain');
 
-    // ティアごとの表示/非表示（grid ごとに独立）
+    // バケツ表示/非表示
     document.querySelectorAll('.controls input[type="checkbox"]').forEach(cb => {
       cb.addEventListener('change', () => {
         const bucket = cb.dataset.bucket;
@@ -446,16 +532,14 @@
       });
     });
 
-    // リセットボタン（gridごと）
+    // リセット
     function setupReset(resetId, gridName) {
       const btn = document.getElementById(resetId);
       btn.addEventListener('click', () => {
-        // チェックボックスを全部ON
         document
           .querySelectorAll(`.controls input[data-grid="${gridName}"]`)
           .forEach(cb => cb.checked = true);
 
-        // そのgridのセル状態リセット
         document
           .querySelectorAll(`.cell[data-grid="${gridName}"]`)
           .forEach(cell => {
@@ -465,7 +549,6 @@
             cell.classList.remove('col-highlight');
           });
 
-        // ヘッダの選択状態も解除
         document
           .querySelectorAll(`.cell.header[data-grid="${gridName}"]`)
           .forEach(h => h.classList.remove('header-active'));
@@ -474,6 +557,207 @@
 
     setupReset('heroReset', 'hero');
     setupReset('villainReset', 'villain');
+
+    /* ===== ハンド履歴：PokerStars HH パーサ ===== */
+
+    let parsedHands = []; // { raw, netBB }
+
+    function parseHandsFromText(text) {
+      parsedHands = [];
+
+      // 「PokerStars Hand #」と「PokerStars ハンド番号」の前で分割
+      const chunks = text.split(/(?=PokerStars (?:Hand #|ハンド番号))/g);
+
+      for (let chunk of chunks) {
+        const trimmed = chunk.trim();
+        if (!trimmed) continue;
+        if (!/PokerStars (Hand #|ハンド番号)/.test(trimmed)) continue;
+
+        // ($0.01/$0.02 USD) から BB を取得（2番目）
+        const blindMatch = trimmed.match(/\((?:\$)?(\d+(?:\.\d+)?)\/(?:\$)?(\d+(?:\.\d+)?)/);
+        if (!blindMatch) continue;
+        const bb = parseFloat(blindMatch[2]);
+        if (!bb || !isFinite(bb)) continue;
+
+        // ヒーロー名（「○○ : 手札は [..]」の行から）
+        const heroName = findHeroName(trimmed);
+        if (!heroName) continue;
+
+        const netChips = calcNetChipsForHero(trimmed, heroName);
+        const netBB = netChips / bb;
+
+        if (!isNaN(netBB)) {
+          parsedHands.push({
+            raw: trimmed,
+            netBB: netBB,
+          });
+        }
+      }
+    }
+
+    function findHeroName(handText) {
+      const lines = handText.split('\n');
+      for (let line of lines) {
+        if (line.includes('手札は')) {
+          const colonIdx = line.indexOf(':');
+          if (colonIdx > 0) {
+            return line.slice(0, colonIdx).trim();
+          }
+        }
+      }
+      return null;
+    }
+
+    // 1ハンドでの最終損益（ドル）を計算
+    function calcNetChipsForHero(handText, heroName) {
+      const lines = handText.split('\n');
+      let invested = 0;
+      let collected = 0;
+      let returned = 0;
+
+      const heroPrefix = heroName + ':';
+      const heroPrefixSpace = heroName + ' :';
+
+      for (let rawLine of lines) {
+        const line = rawLine.trim();
+
+        const isHeroLine =
+          line.startsWith(heroPrefix) || line.startsWith(heroPrefixSpace);
+
+        // ヒーローのポスト/ベット/コール/レイズ
+        if (isHeroLine) {
+          if (line.includes('ポスト') || line.includes('ベット') || line.includes('コール')) {
+            const m = line.match(/\$([0-9]+(?:\.[0-9]+)?)/);
+            if (m) invested += parseFloat(m[1]);
+          }
+
+          if (line.includes('レイズ')) {
+            const nums = [...line.matchAll(/\$([0-9]+(?:\.[0-9]+)?)/g)].map(m => parseFloat(m[1]));
+            if (nums.length >= 2) {
+              invested += nums[0];  // 「$0.15 $0.20」→ 0.15 だけ増加
+            } else if (nums.length === 1) {
+              invested += nums[0];
+            }
+          }
+        }
+
+        // 「○○ はポットの$Xを獲得。」
+        if (line.includes('はポットの$') && line.includes('を獲得')) {
+          const m = line.match(/(.+?) はポットの\$([0-9]+(?:\.[0-9]+)?)を獲得/);
+          if (m) {
+            const name = m[1].trim();
+            const amount = parseFloat(m[2]);
+            if (name === heroName) collected += amount;
+          }
+        }
+
+        // 「コールされなかったベット ($X) は○○に戻されました。」
+        if (line.includes('コールされなかったベット') && line.includes('戻されました')) {
+          const m = line.match(/コールされなかったベット \(\$([0-9]+(?:\.[0-9]+)?)\) は(.+?)に戻されました/);
+          if (m) {
+            const amount = parseFloat(m[1]);
+            const name = m[2].trim().replace(/。$/, '');
+            if (name === heroName) returned += amount;
+          }
+        }
+
+        // サマリの「シート n: 名前 (...) 集める ($X)」
+        if (line.includes('集める ($')) {
+          const m = line.match(/シート \d+: ([^(]+)\([^)]*\)\s*集める \(\$([0-9]+(?:\.[0-9]+)?)\)/);
+          if (m) {
+            const name = m[1].trim();
+            const amount = parseFloat(m[2]);
+            if (name === heroName) collected += amount;
+          }
+        }
+      }
+
+      // 最終損益（ドル）
+      return collected + returned - invested;
+    }
+
+    // UI要素
+    const hhImportBtn = document.getElementById('hhImportBtn');
+    const hhFileInput = document.getElementById('hhFileInput');
+    const hhFileName = document.getElementById('hhFileName');
+    const hhThresholdInput = document.getElementById('hhThreshold');
+    const hhDirectionSelect = document.getElementById('hhDirection');
+    const hhShowBtn = document.getElementById('hhShowBtn');
+    const hhErrorEl = document.getElementById('hhError');
+    const hhResultsEl = document.getElementById('hhResults');
+
+    hhImportBtn.addEventListener('click', () => {
+      hhFileInput.click();
+    });
+
+    hhFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      hhFileName.textContent = file.name;
+      hhErrorEl.textContent = '読み込み中…';
+      hhResultsEl.textContent = '';
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result.toString();
+        parseHandsFromText(text);
+        if (parsedHands.length === 0) {
+          hhErrorEl.textContent = '有効なPokerStarsハンド履歴が見つかりませんでした。';
+        } else {
+          hhErrorEl.textContent = `ハンドを ${parsedHands.length} 件読み込みました。条件を設定して「履歴を表示」を押してください。`;
+        }
+      };
+      reader.onerror = () => {
+        hhErrorEl.textContent = 'ファイルの読み込みに失敗しました。';
+      };
+      reader.readAsText(file);
+    });
+
+    hhShowBtn.addEventListener('click', () => {
+      hhResultsEl.textContent = '';
+      hhErrorEl.textContent = '';
+
+      if (!parsedHands || parsedHands.length === 0) {
+        hhErrorEl.textContent = 'ハンド履歴が取り込まれていません。先に「HHを取り込む」でファイルを選んでください。';
+        return;
+      }
+
+      const th = parseFloat(hhThresholdInput.value);
+      if (!(th > 0)) {
+        hhErrorEl.textContent = '絞り込み条件（◯◯bb以上）を入力してください。';
+        return;
+      }
+
+      const dir = hhDirectionSelect.value; // 'won' or 'lost'
+      if (!dir) {
+        hhErrorEl.textContent = '「得た」か「失った」を選択してください。';
+        return;
+      }
+
+      let filtered = parsedHands.filter(h => {
+        if (dir === 'won') return h.netBB >= th;   // プラス
+        return h.netBB <= -th;                     // マイナス
+      });
+
+      if (filtered.length === 0) {
+        hhErrorEl.textContent = '条件に一致するハンドがありませんでした。';
+        return;
+      }
+
+      if (filtered.length > 30) {
+        hhErrorEl.textContent = `条件に一致するハンドが ${filtered.length} 件あります。30件を超えるため表示しません。閾値を上げるなどして再度絞り込んでください。`;
+        return;
+      }
+
+      const parts = filtered.map((h, idx) => {
+        const sign = h.netBB >= 0 ? '+' : '';
+        const header = `#${idx + 1}  Net: ${sign}${h.netBB.toFixed(1)} bb`;
+        return header + '\n' + h.raw;
+      });
+
+      hhResultsEl.textContent = parts.join('\n\n────────────────────\n\n');
+    });
   </script>
 </body>
 </html>
